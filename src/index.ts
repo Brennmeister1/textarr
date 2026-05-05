@@ -11,6 +11,7 @@ import { DiscordProvider } from './messaging/providers/discord.provider.js';
 import { SlackProvider } from './messaging/providers/slack.provider.js';
 import { MessageHandler } from './handlers/index.js';
 import type { MessageResponse } from './messaging/types.js';
+import { SessionService } from './services/session.service.js';
 
 /**
  * Convert stored AppConfig to runtime Config
@@ -215,12 +216,17 @@ async function main() {
       messagingManager = new MessagingManager(logger);
     }
 
+    // Get session service - use container's if initialized, otherwise create standalone
+    const sessionService = container.isInitialized
+      ? container.session
+      : new SessionService(config.session.timeoutMs, logger);
+
     // Create and register Telegram provider
     if (config.telegram.enabled && config.telegram.botToken) {
       try {
         const telegramProvider = new TelegramProvider(
           config.telegram,
-          container.session,
+          sessionService,
           logger
         );
         messagingManager.registerProvider(telegramProvider);
@@ -235,7 +241,7 @@ async function main() {
       try {
         const discordProvider = new DiscordProvider(
           config.discord,
-          container.session,
+          sessionService,
           logger
         );
         messagingManager.registerProvider(discordProvider);
@@ -250,7 +256,7 @@ async function main() {
       try {
         const slackProvider = new SlackProvider(
           config.slack,
-          container.session,
+          sessionService,
           logger
         );
         messagingManager.registerProvider(slackProvider);
