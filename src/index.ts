@@ -5,6 +5,12 @@ import { createServer } from './server.js';
 import { loadConfig, isConfigComplete } from './config/storage.js';
 import type { Config, User } from './config/index.js';
 import type { AppConfig } from './config/storage.js';
+import { MessagingManager } from './messaging/manager.js';
+import { TelegramProvider } from './messaging/providers/telegram.provider.js';
+import { DiscordProvider } from './messaging/providers/discord.provider.js';
+import { SlackProvider } from './messaging/providers/slack.provider.js';
+import { MessageHandler } from './handlers/index.js';
+import type { MessageResponse } from './messaging/types.js';
 
 /**
  * Convert stored AppConfig to runtime Config
@@ -169,8 +175,9 @@ async function main() {
 
   // Create service container
   const container = new ServiceContainer(logger);
+  let messagingManager: MessagingManager | undefined;
 
-  // Only initialize services if configuration is complete
+  // Initialize services if configuration is complete
   if (configStatus.complete) {
     logger.info('Configuration complete, initializing services...');
 
@@ -196,8 +203,78 @@ async function main() {
       }
     }
   } else {
-    logger.warn({ missing: configStatus.missing }, 'Configuration incomplete - running in setup mode');
-    logger.info('Visit the web interface to complete setup');
+    logger.info(`  ⚠️  Setup Required: Complete configuration in web UI`);
+  }
+
+  // Initialize messaging providers (independent of full config completeness)
+  try {
+    const config = buildRuntimeConfig(appConfig);
+    
+    // Create messaging manager if not already created
+    if (!messagingManager) {
+      messagingManager = new MessagingManager(logger);
+    }
+
+    // Create and register Telegram provider
+    if (config.telegram.enabled && config.telegram.botToken) {
+      try {
+        const telegramProvider = new TelegramProvider(
+          config.telegram,
+          container.session,
+          logger
+        );
+        messagingManager.registerProvider(telegramProvider);
+        logger.info('Telegram provider registered');
+      } catch (error) {
+        logger.error({ error }, 'Failed to create Telegram provider');
+      }
+    }
+
+    // Create and register Discord provider
+    if (config.discord.enabled && config.discord.botToken) {
+      try {
+        const discordProvider = new DiscordProvider(
+          config.discord,
+          container.session,
+          logger
+        );
+        messagingManager.registerProvider(discordProvider);
+        logger.info('Discord provider registered');
+      } catch (error) {
+        logger.error({ error }, 'Failed to create Discord provider');
+      }
+    }
+
+    // Create and register Slack provider
+    if (config.slack.enabled && config.slack.botToken) {
+      try {
+        const slackProvider = new SlackProvider(
+          config.slack,
+          container.session,
+          logger
+        );
+        messagingManager.registerProvider(slackProvider);
+        logger.info('Slack provider registered');
+      } catch (error) {
+        logger.error({ error }, 'Failed to create Slack provider');
+      }
+    }
+
+    // Set message handler if we have services
+    if (container.isInitialized) {
+      const messageHandlerInstance = new MessageHandler(container.all, config, logger);
+      messagingManager.setMessageHandler(async (userId, message) => {
+        return messageHandlerInstance.handleMessage(userId, message);
+      });
+    }
+
+    // Start all messaging providers (even if other services aren't fully initialized)
+    if (messagingManager.getEnabledProviders().length > 0) {
+      await messagingManager.start();
+      logger.info('Messaging providers started');
+    }
+  } catch (error) {
+    logger.error({ error }, 'Failed to initialize messaging providers');
   }
 
   // Create and start server
@@ -212,7 +289,7 @@ async function main() {
 
     logger.info({ port }, 'Server started');
     logger.info('');
-    logger.info('═══════════════════════════════════════════════════════');
+    logger.info('═══════════════════════════════════════════');
     logger.info(`  🎬 Textarr is running!`);
     logger.info(`  📱 Web Interface: http://localhost:${port}`);
     if (configStatus.complete) {
@@ -221,7 +298,7 @@ async function main() {
     } else {
       logger.info(`  ⚠️  Setup Required: Complete configuration in web UI`);
     }
-    logger.info('═══════════════════════════════════════════════════════');
+    logger.info('═══════════════════════════════════════════');
     logger.info('');
   } catch (error) {
     logger.fatal({ error }, 'Failed to start server');

@@ -31,7 +31,7 @@ coverage/
 # Misc
 *.tgz
 .cache/
-config.json
+config/
 
 # Security - session encryption key
 .session-key
