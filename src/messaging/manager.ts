@@ -20,10 +20,13 @@ export class MessagingManager {
   }
 
   /**
-   * Set the message handler callback
+   * Set the message handler callback and propagate to all registered providers
    */
   setMessageHandler(handler: MessageHandlerCallback): void {
     this.messageHandler = handler;
+    for (const provider of this.providers.values()) {
+      provider.setMessageHandler(handler);
+    }
   }
 
   /**
@@ -34,6 +37,10 @@ export class MessagingManager {
       this.logger.warn({ platform: provider.platform }, 'Provider already registered, replacing');
     }
     this.providers.set(provider.platform, provider);
+    // Propagate existing handler to newly registered provider
+    if (this.messageHandler) {
+      provider.setMessageHandler(this.messageHandler);
+    }
     this.logger.info({ platform: provider.platform }, 'Provider registered');
   }
 

@@ -69,6 +69,11 @@ export interface MessagingProvider {
   readonly isEnabled: boolean;
 
   /**
+   * Set the message handler callback for incoming messages
+   */
+  setMessageHandler(handler: MessageHandlerCallback): void;
+
+  /**
    * Start the provider (connect to platform, start webhook server, etc.)
    */
   start(): Promise<void>;
