@@ -85,6 +85,10 @@ export function buildRuntimeConfig(appConfig: AppConfig): Config {
       animeQualityProfileId: appConfig.radarr.animeQualityProfileId,
       animeTagIds: appConfig.radarr.animeTagIds,
     },
+    prowlarr: {
+      url: appConfig.prowlarr.url,
+      apiKey: appConfig.prowlarr.apiKey,
+    },
     tmdb: {
       apiKey: appConfig.tmdb.apiKey,
       language: appConfig.tmdb.language,

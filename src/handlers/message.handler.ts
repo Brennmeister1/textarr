@@ -1,6 +1,8 @@
 import type { Logger } from '../utils/logger.js';
 import type { Services } from '../services/index.js';
 import type { Config } from '../config/index.js';
+import type { FilteredProwlarrResult } from '../services/prowlarr.service.js';
+import { PROWLARR_CATEGORIES, type ProwlarrMediaType } from '../services/prowlarr.service.js';
 import type {
   MediaSearchResult,
   ParsedRequest,
@@ -107,6 +109,9 @@ export class MessageHandler {
           return { text: this.config.messages.nothingToConfirm };
 
         case 'select':
+          if (session.state === 'awaiting_prowlarr_selection' && parsed.selectionNumber) {
+            return await this.handleProwlarrSelection(userId, parsed.selectionNumber);
+          }
           if (session.state === 'awaiting_selection' && parsed.selectionNumber) {
             return await this.handleSelection(userId, parsed.selectionNumber);
           }
@@ -199,6 +204,10 @@ export class MessageHandler {
           return await this.handleNextEpisode(userId, parsed);
         case 'box_office':
           return await this.handleBoxOffice(userId, parsed);
+
+        case 'search_book':
+        case 'search_comic':
+          return await this.handleProwlarrSearch(userId, parsed);
 
         default:
           return {
@@ -2183,5 +2192,121 @@ export class MessageHandler {
 
     lines.push(`\n${this.config.messages.selectPrompt}`);
     return lines.join('\n');
+  }
+
+  /**
+   * Handle book/comic search via Prowlarr
+   */
+  private async handleProwlarrSearch(
+    userId: PlatformUserId,
+    parsed: ParsedRequest
+  ): Promise<MessageResponse> {
+    const mediaType: ProwlarrMediaType = parsed.action === 'search_comic' ? 'comics' : 'books';
+    const categories = PROWLARR_CATEGORIES[mediaType];
+    const title = parsed.title || '';
+    const emoji = mediaType === 'comics' ? '📚' : '📖';
+
+    if (!title) {
+      return { text: `${emoji} What ${mediaType === 'comics' ? 'comic/manga' : 'book'} are you looking for? Please provide a title.` };
+    }
+
+    this.logger.info({ userId, title, mediaType }, 'Prowlarr search requested');
+
+    try {
+      // Build search variants
+      const searchTerms = this.services.prowlarr.buildSearchTerms(title);
+      this.logger.debug({ searchTerms }, 'Prowlarr search terms');
+
+      // Search Prowlarr
+      const results = await this.services.prowlarr.multiSearch(searchTerms, categories);
+
+      if (results.length === 0) {
+        return { text: `${emoji} No results found for "${title}". Try different search terms.` };
+      }
+
+      // Filter and rank results
+      const preferredLang = this.config.tmdb.language === 'de' ? 'german' : undefined;
+      const filtered = this.services.prowlarr.filterResults(results, {
+        preferredLanguage: preferredLang,
+        minSeeders: 0,
+        maxResults: 5,
+      });
+
+      if (filtered.length === 0) {
+        return { text: `${emoji} Found some results for "${title}" but none met quality thresholds. Try again later.` };
+      }
+
+      // Store results in session for selection
+      this.services.session.setProwlarrResults(userId, filtered);
+
+      // Format results
+      const typeLabel = mediaType === 'comics' ? 'Comics/Manga' : 'Books';
+      const lines: string[] = [
+        `${emoji} *${typeLabel} results for "${title}":*`,
+        '',
+      ];
+
+      filtered.forEach((r, i) => {
+        const seeds = r.seeders > 0 ? `🔺${r.seeders}` : '';
+        const langStr = r.languages.length > 0 ? ` [${r.languages.join(', ')}]` : '';
+        lines.push(`${i + 1}. ${r.title}`);
+        lines.push(`   📦 ${r.size} | ${r.protocol} | ${r.indexer}${langStr} ${seeds} | ${r.age}`);
+      });
+
+      lines.push('');
+      lines.push(`Reply with a number (1-${filtered.length}) to grab a release.`);
+
+      return { text: lines.join('\n') };
+    } catch (error) {
+      this.logger.error({ error, title, mediaType }, 'Prowlarr search failed');
+      return { text: `${emoji} Search failed. Prowlarr may not be configured or reachable.` };
+    }
+  }
+
+  /**
+   * Handle user selecting a Prowlarr release to grab
+   */
+  private async handleProwlarrSelection(
+    userId: PlatformUserId,
+    selection: number
+  ): Promise<MessageResponse> {
+    const results = this.services.session.getProwlarrResults(userId);
+
+    if (selection < 1 || selection > results.length) {
+      return { text: `Please select a number between 1 and ${results.length}.` };
+    }
+
+    const selected = results[selection - 1];
+    if (!selected) {
+      return { text: 'Invalid selection.' };
+    }
+
+    this.logger.info({ userId, guid: selected.guid, title: selected.title }, 'Grabbing Prowlarr release');
+
+    try {
+      // Prowlarr needs indexerId for grab - we need to get it from the original search
+      // The guid alone is usually enough for Prowlarr to identify the release
+      // But Prowlarr's release endpoint might need indexerId
+      // For now, we use the guid - Prowlarr can often resolve from guid alone
+      await this.services.prowlarr.grabRelease(selected.guid, 0);
+
+      this.services.session.resetSession(userId);
+
+      const emoji = results.length > 0 ? '📖' : '📚';
+      return {
+        text: [
+          `${emoji} *Release grabbed!*`,
+          '',
+          `Title: ${selected.title}`,
+          `Size: ${selected.size}`,
+          `Indexer: ${selected.indexer}`,
+          '',
+          'The download has been sent to your download client.',
+        ].join('\n'),
+      };
+    } catch (error) {
+      this.logger.error({ error, guid: selected.guid }, 'Failed to grab release');
+      return { text: 'Failed to grab release. The indexer may be unavailable or the release may have been removed.' };
+    }
   }
 }

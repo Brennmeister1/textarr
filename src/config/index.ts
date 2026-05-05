@@ -74,6 +74,10 @@ export interface Config {
     animeQualityProfileId?: number;
     animeTagIds: number[];
   };
+  prowlarr: {
+    url: string;
+    apiKey: string;
+  };
   tmdb: {
     apiKey: string;
     language: string;

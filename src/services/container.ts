@@ -11,6 +11,7 @@ import type { TMDBService } from './tmdb.service.js';
 import type { UserService } from './user.service.js';
 import type { MediaRequestService } from './media-request.service.js';
 import type { NotificationService } from './notification.service.js';
+import type { ProwlarrService } from './prowlarr.service.js';
 
 /**
  * Error thrown when accessing services before initialization
@@ -36,6 +37,7 @@ export interface InitializationResult {
 export interface ConnectionTestResult {
   sonarr: boolean;
   radarr: boolean;
+  prowlarr: boolean;
 }
 
 /**
@@ -141,6 +143,13 @@ export class ServiceContainer {
     return this.services.notification;
   }
 
+  get prowlarr(): ProwlarrService {
+    if (!this.services) {
+      throw new ServiceNotInitializedError('prowlarr');
+    }
+    return this.services.prowlarr;
+  }
+
   /**
    * Get services or null if not initialized (for safe access in webhooks)
    */
@@ -230,14 +239,15 @@ export class ServiceContainer {
    */
   async testConnections(): Promise<ConnectionTestResult> {
     if (!this.services) {
-      return { sonarr: false, radarr: false };
+      return { sonarr: false, radarr: false, prowlarr: false };
     }
 
-    const [sonarr, radarr] = await Promise.all([
+    const [sonarr, radarr, prowlarr] = await Promise.all([
       this.services.sonarr.testConnection(),
       this.services.radarr.testConnection(),
+      this.services.prowlarr.testConnection(),
     ]);
 
-    return { sonarr, radarr };
+    return { sonarr, radarr, prowlarr };
   }
 }

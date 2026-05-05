@@ -1,6 +1,7 @@
 import type { Logger } from '../utils/logger.js';
 import type { MediaSearchResult, ConversationState, SessionData, Platform, ConversationMessage } from '../schemas/index.js';
 import type { PlatformUserId } from '../messaging/types.js';
+import type { FilteredProwlarrResult } from './prowlarr.service.js';
 import { parsePlatformUserId } from '../messaging/types.js';
 
 type ResultSourceType = 'search' | 'recommendation';
@@ -92,6 +93,24 @@ export class SessionService {
   }
 
   /**
+   * Store Prowlarr search results for user selection
+   */
+  setProwlarrResults(userId: PlatformUserId, results: FilteredProwlarrResult[]): void {
+    const session = this.getSession(userId);
+    session.prowlarrResults = results as SessionData['prowlarrResults'];
+    session.state = 'awaiting_prowlarr_selection';
+    session.lastActivity = new Date();
+    this.logger.debug({ userId, resultCount: results.length }, 'Set Prowlarr results');
+  }
+
+  /**
+   * Get Prowlarr search results
+   */
+  getProwlarrResults(userId: PlatformUserId): SessionData['prowlarrResults'] {
+    return this.getSession(userId).prowlarrResults;
+  }
+
+  /**
    * Get selected media
    */
   getSelectedMedia(userId: PlatformUserId): MediaSearchResult | null {
@@ -106,6 +125,7 @@ export class SessionService {
     const session = this.getSession(userId);
     session.state = 'idle';
     session.pendingResults = [];
+    session.prowlarrResults = [];
     session.selectedMedia = null;
     session.resultSource = null;
     session.lastActivity = new Date();
@@ -183,6 +203,7 @@ export class SessionService {
       context: {},
       recentMessages: [],
       resultSource: null,
+      prowlarrResults: [],
     };
   }
 

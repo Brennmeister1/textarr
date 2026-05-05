@@ -44,6 +44,8 @@ export const ActionType = z.enum([
   'get_collection', // Get movie collection/franchise
   'next_episode', // Get next episode info (TV only)
   'box_office', // Get box office info (movies only)
+  'search_book', // Search Prowlarr for books/e-books
+  'search_comic', // Search Prowlarr for comics/manga
   'unknown', // Could not determine
 ]);
 export type ActionType = z.infer<typeof ActionType>;
@@ -217,6 +219,7 @@ export const ConversationState = z.enum([
   'awaiting_confirmation', // Waiting for yes/no confirmation
   'awaiting_anime_confirmation', // Waiting for user to confirm if animated content is anime or regular
   'awaiting_season_selection', // Waiting for user to select which seasons to monitor
+  'awaiting_prowlarr_selection', // Waiting for user to select a Prowlarr release
 ]);
 export type ConversationState = z.infer<typeof ConversationState>;
 
@@ -254,5 +257,17 @@ export const SessionDataSchema = z.object({
   context: z.record(z.unknown()),
   recentMessages: z.array(ConversationMessageSchema).default([]), // Last 10 messages for context
   resultSource: ResultSource.nullable().default(null), // Track if results from search or recommendation
+  prowlarrResults: z.array(z.object({
+    guid: z.string(),
+    title: z.string(),
+    size: z.string(),
+    seeders: z.number(),
+    leechers: z.number(),
+    indexer: z.string(),
+    protocol: z.string(),
+    languages: z.array(z.string()),
+    age: z.string(),
+    score: z.number(),
+  })).default([]),
 });
 export type SessionData = z.infer<typeof SessionDataSchema>;

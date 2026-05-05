@@ -17,7 +17,7 @@ import {
 import { buildRuntimeConfig } from '../index.js';
 
 interface TestConnectionBody {
-  type: 'sonarr' | 'radarr';
+  type: 'sonarr' | 'radarr' | 'prowlarr';
   url: string;
   apiKey: string;
 }
@@ -216,13 +216,14 @@ export async function configRoutes(fastify: FastifyInstance, container: ServiceC
     }
   });
 
-  // Test Sonarr/Radarr connection
+  // Test Sonarr/Radarr/Prowlarr connection
   fastify.post<{ Body: TestConnectionBody }>('/api/config/test-connection', async (request) => {
     const { type, url, apiKey } = request.body;
     
     try {
       const baseUrl = url.replace(/\/$/, '');
-      const response = await fetch(`${baseUrl}/api/v3/system/status`, {
+      const apiVersion = type === 'prowlarr' ? 'v1' : 'v3';
+      const response = await fetch(`${baseUrl}/api/${apiVersion}/system/status`, {
         headers: { 'X-Api-Key': apiKey },
       });
       

@@ -74,9 +74,12 @@ const AIResponseSchema = z.object({
       'get_collection',
       'next_episode',
       'box_office',
+      // Book/Comic search
+      'search_book',
+      'search_comic',
     ])
     .describe(
-      'The action based on message and context. Conversational actions: confirm (yes), cancel (no), select (number), back, restart, show_context, change_selection, decline (ending conversation), continue (wants to add more). Media actions: add, search, status, help, recommend. Anime: anime_confirm, regular_confirm. Season: season_select. Recommendation: recommend (for "what should I watch", "trending", "recommend horror", etc.). Media info: get_cast (who is in it), get_trailer (show trailer), where_to_watch (streaming), get_details (tell me about), get_content_rating (age rating), get_reviews (is it good), get_collection (movie series), next_episode (TV schedule), box_office (how much did it make).'
+      'The action based on message and context. Conversational actions: confirm (yes), cancel (no), select (number), back, restart, show_context, change_selection, decline (ending conversation), continue (wants to add more). Media actions: add (movie/show to library), search, status, help, recommend. Anime: anime_confirm, regular_confirm. Season: season_select. Recommendations: recommend. Media info: get_cast, get_trailer, where_to_watch, get_details, get_content_rating, get_reviews, get_collection, next_episode, box_office. Book/Comic search: search_book (find books, e-books, audiobooks), search_comic (find comics, manga, graphic novels). Use these for any book/comic/manga requests even if user says "add" - the system does not maintain a book library, it searches Prowlarr.'
     ),
   selectionNumber: z
     .number()
@@ -274,6 +277,25 @@ Box Office (box_office) - for movies only:
 - "Box office for Avatar" → action: box_office, title: "Avatar"
 - "Was it successful?" → action: box_office
 - "Budget for this movie" → action: box_office
+
+BOOK & COMIC SEARCH:
+When user asks for books, e-books, audiobooks, comics, manga, or graphic novels, use these actions.
+The system searches Prowlarr (an indexer) - not a library. Do NOT use action: add for books/comics.
+
+Book examples (search_book):
+- "I want the book Dune" → action: search_book, title: "Dune", confidence: 0.95
+- "Find me Die Bibel" → action: search_book, title: "Die Bibel", confidence: 0.95
+- "Download the audiobook of Harry Potter" → action: search_book, title: "Harry Potter", confidence: 0.9
+- "Search for Stephen King books" → action: search_book, title: "Stephen King", confidence: 0.85
+- "Gibt es das Buch Der Herr der Ringe?" → action: search_book, title: "Der Herr der Ringe", confidence: 0.9
+- "e-book: The Witcher" → action: search_book, title: "The Witcher", confidence: 0.85
+
+Comic/Manga examples (search_comic):
+- "Find the comic Watchmen" → action: search_comic, title: "Watchmen", confidence: 0.95
+- "Manga One Piece" → action: search_comic, title: "One Piece", confidence: 0.9
+- "Add the graphic novel Maus" → action: search_comic, title: "Maus", confidence: 0.9
+- "I want to download Naruto manga" → action: search_comic, title: "Naruto", confidence: 0.9
+- "Comic: The Walking Dead" → action: search_comic, title: "The Walking Dead", confidence: 0.9
 
 Note: Admin commands (admin add/remove/list/etc.) are handled separately.`;
 }

@@ -21,6 +21,7 @@ export const SECRET_FIELDS = [
   'slack.appToken',
   'sonarr.apiKey',
   'radarr.apiKey',
+  'prowlarr.apiKey',
   'tmdb.apiKey',
   'admin.passwordHash',
   'downloadNotifications.webhookSecret',
@@ -131,6 +132,12 @@ export const AppConfigSchema = z.object({
     animeRootFolder: z.string().optional(),
     animeQualityProfileId: z.number().optional(),
     animeTagIds: z.array(z.number()).default([]),
+  }).default({}),
+
+  // Prowlarr
+  prowlarr: z.object({
+    url: z.string().default('http://localhost:9696'),
+    apiKey: z.string().default(''),
   }).default({}),
 
   // TMDB

@@ -36,9 +36,9 @@ export class BadRequestError extends AppError {
  * Error for media service API failures (Sonarr/Radarr)
  */
 export class MediaServiceError extends AppError {
-  public readonly service: 'sonarr' | 'radarr';
+  public readonly service: 'sonarr' | 'radarr' | 'prowlarr';
 
-  constructor(service: 'sonarr' | 'radarr', message: string, statusCode = 500) {
+  constructor(service: 'sonarr' | 'radarr' | 'prowlarr', message: string, statusCode = 500) {
     super(`${service.charAt(0).toUpperCase() + service.slice(1)}: ${message}`, statusCode);
     this.service = service;
   }

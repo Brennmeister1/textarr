@@ -26,6 +26,9 @@ export const EMOJI = {
   rating: '🔞',
   collection: '📚',
   money: '💰',
+  // Book/Comic emoji
+  book: '📖',
+  comic: '📚',
 } as const;
 
 // Session state labels for user-facing messages
@@ -35,6 +38,7 @@ export const STATE_LABELS: Record<string, string> = {
   awaiting_confirmation: 'Waiting for you to confirm',
   awaiting_anime_confirmation: 'Waiting for anime/regular choice',
   awaiting_season_selection: 'Waiting for season selection',
+  awaiting_prowlarr_selection: 'Waiting for Prowlarr release selection',
 };
 
 // Monitor type labels for TV shows
