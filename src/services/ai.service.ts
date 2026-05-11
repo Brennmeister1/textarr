@@ -4,7 +4,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { z } from 'zod';
 import type { Logger } from '../utils/logger.js';
-import { AIParseError } from '../utils/errors.js';
+import { AIParseError, AIQuotaError } from '../utils/errors.js';
 import type { ParsedRequest, ConversationState, MediaSearchResult, ConversationMessage } from '../schemas/index.js';
 
 /**
@@ -597,6 +597,12 @@ export class AIService {
         };
       }
 
+      if (isAIQuotaError(error)) {
+        const retryAfter = getRetryAfterMessage(error);
+        this.logger.warn({ error, message, retryAfter }, 'AI quota or rate limit exceeded');
+        throw new AIQuotaError(retryAfter ? `Quota exceeded. Retry ${retryAfter}.` : 'Quota exceeded. Please retry later.');
+      }
+
       this.logger.error({ error, message }, 'Failed to parse message');
       throw new AIParseError(`Failed to parse message: ${String(error)}`);
     }
@@ -788,4 +794,48 @@ export class AIService {
     return null;
   }
 
+}
+
+function isAIQuotaError(error: unknown): boolean {
+  const values = collectErrorValues(error);
+  return values.some((value) => {
+    if (!value || typeof value !== 'object') return false;
+    const record = value as Record<string, unknown>;
+    return record.statusCode === 429 ||
+      record.status === 429 ||
+      record.reason === 'maxRetriesExceeded' && collectErrorValues(record.errors).some(isAIQuotaError) ||
+      String(record.name ?? '').includes('RateLimit') ||
+      String(record.message ?? '').toLowerCase().includes('quota exceeded') ||
+      String(record.message ?? '').toLowerCase().includes('resource_exhausted') ||
+      String(record.responseBody ?? '').toLowerCase().includes('quota exceeded') ||
+      String(record.responseBody ?? '').toLowerCase().includes('resource_exhausted');
+  });
+}
+
+function getRetryAfterMessage(error: unknown): string | null {
+  const values = collectErrorValues(error);
+  for (const value of values) {
+    if (!value || typeof value !== 'object') continue;
+    const text = `${String((value as Record<string, unknown>).message ?? '')}\n${String((value as Record<string, unknown>).responseBody ?? '')}`;
+    const retryMatch = text.match(/retry(?:\s+in|\s+after)?\s+([\d.]+)\s*(ms|s|sec|seconds|m|min|minutes)?/i);
+    if (retryMatch?.[1]) {
+      const unit = retryMatch[2] ?? 'seconds';
+      return `in ${retryMatch[1]} ${unit}`;
+    }
+  }
+  return null;
+}
+
+function collectErrorValues(error: unknown): unknown[] {
+  if (Array.isArray(error)) return error.flatMap(collectErrorValues);
+
+  const values: unknown[] = [error];
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    if (Array.isArray(record.errors)) values.push(...record.errors);
+    if (record.lastError) values.push(record.lastError);
+    if (record.cause) values.push(record.cause);
+    if (record.data) values.push(record.data);
+  }
+  return values;
 }

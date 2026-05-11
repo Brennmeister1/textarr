@@ -13,6 +13,7 @@ import type {
 import { createPlatformUserId, parsePlatformUserId, type PlatformUserId, type Platform } from '../messaging/types.js';
 import { EMOJI, MONITOR_LABELS, SEASON_MONITOR_TYPES, getMediaEmoji, getMediaTypeLabel } from '../constants/index.js';
 import { formatMessage, getStateLabel } from '../utils/messages.js';
+import { AIQuotaError } from '../utils/errors.js';
 
 /**
  * Response from message handler
@@ -220,6 +221,13 @@ export class MessageHandler {
           };
       }
     } catch (error) {
+      if (error instanceof AIQuotaError) {
+        this.logger.warn({ error: error.message, userId, message }, 'AI quota exhausted while handling message');
+        return {
+          text: `${EMOJI.warning} AI quota/rate limit reached. Please wait a bit and try again, or switch Textarr to another AI provider/model.`,
+        };
+      }
+
       this.logger.error({ error, userId, message }, 'Error handling message');
       return { text: `${EMOJI.warning} ${this.config.messages.genericError}` };
     }

@@ -67,6 +67,15 @@ export class AIParseError extends AppError {
 }
 
 /**
+ * Error for AI provider quota/rate limit exhaustion.
+ */
+export class AIQuotaError extends AppError {
+  constructor(message = 'AI provider quota or rate limit exceeded') {
+    super(`AI Quota: ${message}`, 429);
+  }
+}
+
+/**
  * Error for Twilio failures
  */
 export class TwilioError extends AppError {
