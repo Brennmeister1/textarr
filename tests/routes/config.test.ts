@@ -167,6 +167,7 @@ describe('config preservation', () => {
       'slack.appToken',
       'sonarr.apiKey',
       'radarr.apiKey',
+      'prowlarr.apiKey',
       'tmdb.apiKey',
       'admin.passwordHash',
       'downloadNotifications.webhookSecret',

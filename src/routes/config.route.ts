@@ -195,6 +195,7 @@ export async function configRoutes(fastify: FastifyInstance, container: ServiceC
         services: {
           sonarr: connections.sonarr,
           radarr: connections.radarr,
+          prowlarr: connections.prowlarr,
         },
       };
     } catch (error) {

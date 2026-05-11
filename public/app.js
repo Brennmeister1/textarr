@@ -544,6 +544,8 @@ function pathToFieldId(path) {
     'radarr.apiKey': 'radarrApiKey',
     'radarr.qualityProfileId': 'radarrQualityProfile',
     'radarr.rootFolder': 'radarrRootFolder',
+    'prowlarr.url': 'prowlarrUrl',
+    'prowlarr.apiKey': 'prowlarrApiKey',
     'tmdb.apiKey': 'tmdbApiKey',
     'tmdb.language': 'tmdbLanguage',
     'session.timeoutMs': 'sessionTimeout',
@@ -623,6 +625,9 @@ function setupEventListeners() {
   // Radarr
   document.querySelector('[data-test-connection="radarr"]')?.addEventListener('click', () => testConnection('radarr'));
   document.getElementById('fetchRadarrBtn')?.addEventListener('click', fetchRadarrOptions);
+
+  // Prowlarr
+  document.querySelector('[data-test-connection="prowlarr"]')?.addEventListener('click', () => testConnection('prowlarr'));
 
   // TMDB
   document.getElementById('testTMDBBtn')?.addEventListener('click', testTMDB);
@@ -887,6 +892,10 @@ function populateForm(config) {
   if (config.radarr?.animeRootFolder) {
     setSelectValue('radarrAnimeRootFolder', config.radarr.animeRootFolder);
   }
+
+  // Prowlarr
+  document.getElementById('prowlarrUrl').value = config.prowlarr?.url || 'http://localhost:9696';
+  document.getElementById('prowlarrApiKey').value = config.prowlarr?.apiKey || '';
 
   // TMDB
   document.getElementById('tmdbApiKey').value = config.tmdb?.apiKey || '';
@@ -1266,6 +1275,10 @@ function gatherFormData() {
         parseInt(document.getElementById('radarrAnimeQualityProfile').value) || undefined,
       animeTagIds: getSelectedTagIds('radarrAnimeTags'),
     },
+    prowlarr: {
+      url: document.getElementById('prowlarrUrl').value,
+      apiKey: document.getElementById('prowlarrApiKey').value,
+    },
     tmdb: {
       apiKey: document.getElementById('tmdbApiKey').value,
       language: document.getElementById('tmdbLanguage').value,
@@ -1363,7 +1376,7 @@ async function saveConfig() {
       } else if (data.applied === true) {
         // Config was saved and applied successfully
         const serviceStatus = data.services
-          ? ` (Sonarr: ${data.services.sonarr ? 'OK' : 'Failed'}, Radarr: ${data.services.radarr ? 'OK' : 'Failed'})`
+          ? ` (Sonarr: ${data.services.sonarr ? 'OK' : 'Failed'}, Radarr: ${data.services.radarr ? 'OK' : 'Failed'}, Prowlarr: ${data.services.prowlarr ? 'OK' : 'Failed'})`
           : '';
         showToast('Configuration saved and applied!' + serviceStatus, 'success');
       } else if (data.applied === false && data.errors) {
