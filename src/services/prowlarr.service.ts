@@ -115,8 +115,15 @@ export class ProwlarrService {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unknown error');
-        this.logger.error({ status: response.status, error: errorText }, 'Prowlarr request failed');
-        throw new MediaServiceError('prowlarr', `Request failed: ${response.statusText}`, response.status);
+        this.logger.error(
+          { status: response.status, statusText: response.statusText, error: errorText, url: url.toString() },
+          'Prowlarr request failed'
+        );
+        throw new MediaServiceError(
+          'prowlarr',
+          `Request failed: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`,
+          response.status
+        );
       }
 
       const text = await response.text();
@@ -168,7 +175,13 @@ export class ProwlarrService {
 
     for (const query of queries) {
       try {
-        const results = await this.search(query, categories, limit);
+        let results = await this.search(query, categories, limit);
+
+        if (results.length === 0 && categories.length > 0) {
+          this.logger.info({ query, categories }, 'No categorized Prowlarr results, retrying without categories');
+          results = await this.search(query, [], limit);
+        }
+
         for (const r of results) {
           if (!seen.has(r.guid)) {
             seen.add(r.guid);
@@ -176,7 +189,29 @@ export class ProwlarrService {
           }
         }
       } catch (error) {
-        this.logger.warn({ query, error }, 'Search term failed, continuing');
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (categories.length > 0) {
+          try {
+            this.logger.warn(
+              { query, categories, error: message },
+              'Categorized Prowlarr search failed, retrying without categories'
+            );
+            const results = await this.search(query, [], limit);
+            for (const r of results) {
+              if (!seen.has(r.guid)) {
+                seen.add(r.guid);
+                allResults.push(r);
+              }
+            }
+            continue;
+          } catch (fallbackError) {
+            const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+            this.logger.warn({ query, error: fallbackMessage }, 'Fallback Prowlarr search failed, continuing');
+          }
+        } else {
+          this.logger.warn({ query, error: message }, 'Search term failed, continuing');
+        }
       }
     }
 
