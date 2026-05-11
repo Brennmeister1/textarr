@@ -2228,6 +2228,7 @@ export class MessageHandler {
       const preferredLang = this.config.tmdb.language === 'de' ? 'german' : undefined;
       const filtered = this.services.prowlarr.filterResults(results, {
         preferredLanguage: preferredLang,
+        query: title,
         minSeeders: 0,
         maxResults: 5,
       });

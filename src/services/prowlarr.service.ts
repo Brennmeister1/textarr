@@ -244,11 +244,13 @@ export class ProwlarrService {
     results: ProwlarrSearchResult[],
     options?: {
       preferredLanguage?: string;
+      query?: string;
       minSeeders?: number;
       maxResults?: number;
     }
   ): FilteredProwlarrResult[] {
     const lang = options?.preferredLanguage?.toLowerCase();
+    const query = options?.query?.toLowerCase();
     const minSeeds = options?.minSeeders ?? 0;
     const max = options?.maxResults ?? 5;
 
@@ -266,7 +268,7 @@ export class ProwlarrService {
         protocol: r.protocol ?? 'unknown',
         languages: (r.languages ?? []).map((l) => l.name).filter(Boolean),
         age: formatAge(r.ageMinutes ?? 0),
-        score: this.scoreResult(r, lang),
+        score: this.scoreResult(r, lang, query),
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, max);
@@ -277,32 +279,72 @@ export class ProwlarrService {
   /**
    * Score a result for ranking (higher = better)
    */
-  private scoreResult(result: ProwlarrSearchResult, preferredLanguage?: string): number {
+  private scoreResult(
+    result: ProwlarrSearchResult,
+    preferredLanguage?: string,
+    query?: string
+  ): number {
     let score = 0;
+    const title = result.title.toLowerCase();
 
-    // Seeders are king (0-30 points)
-    score += Math.min(result.seeders ?? 0, 30);
+    // Relevance: keep exact-title matches above loose indexer matches.
+    if (query) {
+      const normalizedTitle = normalizeForScoring(title);
+      const normalizedQuery = normalizeForScoring(query);
+      if (normalizedTitle.includes(normalizedQuery)) score += 35;
 
-    // Language preference (0-20 points)
-    if (preferredLanguage) {
-      const langNames = (result.languages ?? []).map((l) => l.name.toLowerCase());
-      const langIds = (result.languages ?? []).map((l) => l.id);
-
-      // German = 4
-      if (langNames.includes(preferredLanguage) || (preferredLanguage === 'german' && langIds.includes(4))) {
-        score += 20;
-      }
-      // English = 1 (fallback)
-      else if (langNames.includes('english') || langIds.includes(1)) {
-        score += 10;
+      const queryTerms = normalizedQuery.split(' ').filter((term) => term.length > 2);
+      const matchedTerms = queryTerms.filter((term) => normalizedTitle.includes(term)).length;
+      if (queryTerms.length > 0) {
+        score += Math.round((matchedTerms / queryTerms.length) * 20);
       }
     }
 
-    // Format preference: epub > pdf > mobi > other (0-10)
-    const title = result.title.toLowerCase();
+    // Seeders matter, but should not beat language/relevance entirely.
+    score += Math.min(result.seeders ?? 0, 20);
+
+    // Language preference from Prowlarr language metadata and common title tags.
+    if (preferredLanguage) {
+      const langNames = (result.languages ?? []).map((l) => l.name.toLowerCase());
+      const langIds = (result.languages ?? []).map((l) => l.id);
+      const hasGerman =
+        langNames.includes('german') ||
+        langNames.includes('deutsch') ||
+        langIds.includes(4) ||
+        /\b(ger|german|deutsch|deu)\b/i.test(title);
+      const hasEnglish =
+        langNames.includes('english') ||
+        langIds.includes(1) ||
+        /\b(eng|english)\b/i.test(title);
+
+      if (preferredLanguage === 'german') {
+        if (hasGerman) score += 60;
+        else if (hasEnglish) score += 20;
+        else score -= 10;
+      } else if (langNames.includes(preferredLanguage)) {
+        score += 50;
+      }
+
+      // Avoid German+English mixed packs outranking clean German if both are present.
+      if (preferredLanguage === 'german' && hasGerman && hasEnglish) {
+        score -= 5;
+      }
+    }
+
+    // Manga/comic release quality hints.
+    if (/\b(complete|collection|omnibus|bundle|pack)\b/i.test(title)) score += 12;
+    if (/\b(vol\.?|volume|band)\s*\d+/i.test(title)) score += 10;
+    if (/\b(ch\.?|chapter|kapitel)\s*\d+/i.test(title)) score += 4;
+
+    // Format preference: epub/cbz/cbr/pdf > other.
     if (title.includes('.epub') || title.includes('epub')) score += 10;
+    else if (title.includes('.cbz') || title.includes('cbz')) score += 9;
+    else if (title.includes('.cbr') || title.includes('cbr')) score += 9;
     else if (title.includes('.pdf') || title.includes('pdf')) score += 7;
     else if (title.includes('.mobi') || title.includes('mobi')) score += 5;
+
+    // Common low-value/non-release noise.
+    if (/\b(sample|preview|trailer|wallpaper|ost|soundtrack)\b/i.test(title)) score -= 25;
 
     // Protocol: prefer usenet for consistency (0-5)
     if (result.protocol === 'usenet') score += 5;
@@ -353,6 +395,14 @@ export class ProwlarrService {
   async getIndexers(): Promise<Array<{ id: number; name: string; enable: boolean }>> {
     return this.request('GET', 'indexer');
   }
+}
+
+function normalizeForScoring(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function formatSize(bytes: number): string {
