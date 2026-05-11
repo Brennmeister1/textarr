@@ -1,7 +1,7 @@
 import type { Logger } from '../utils/logger.js';
 import type { Services } from '../services/index.js';
 import type { Config } from '../config/index.js';
-import type { FilteredProwlarrResult } from '../services/prowlarr.service.js';
+import type { FilteredProwlarrResult, ProwlarrSearchResult } from '../services/prowlarr.service.js';
 import { PROWLARR_CATEGORIES, type ProwlarrMediaType } from '../services/prowlarr.service.js';
 import type {
   MediaSearchResult,
@@ -21,6 +21,11 @@ export interface MessageResponse {
   text: string;
   /** Optional media URLs (poster images) to include in MMS */
   mediaUrls?: string[];
+}
+
+interface ProwlarrBulkChoice {
+  label: string;
+  results: FilteredProwlarrResult[];
 }
 
 /**
@@ -2224,8 +2229,14 @@ export class MessageHandler {
         return { text: `${emoji} No results found for "${title}". Try different search terms.` };
       }
 
-      // Filter and rank results
       const preferredLang = this.config.tmdb.language === 'de' ? 'german' : undefined;
+
+      if (mediaType === 'comics' && this.isAllVolumesRequest(parsed)) {
+        const volumeResponse = this.handleProwlarrVolumeSummary(userId, title, results, preferredLang);
+        if (volumeResponse) return volumeResponse;
+      }
+
+      // Filter and rank results
       const filtered = this.services.prowlarr.filterResults(results, {
         preferredLanguage: preferredLang,
         query: title,
@@ -2273,6 +2284,16 @@ export class MessageHandler {
     selection: number
   ): Promise<MessageResponse> {
     const results = this.services.session.getProwlarrResults(userId);
+    const session = this.services.session.getSession(userId);
+    const bulkChoices = this.getProwlarrBulkChoices(session.context);
+
+    if (bulkChoices.length > 0) {
+      const selectedChoice = bulkChoices[selection - 1];
+      if (!selectedChoice) {
+        return { text: `Please select a number between 1 and ${bulkChoices.length}.` };
+      }
+      return await this.handleProwlarrBulkSelection(userId, selectedChoice);
+    }
 
     if (selection < 1 || selection > results.length) {
       return { text: `Please select a number between 1 and ${results.length}.` };
@@ -2308,4 +2329,151 @@ export class MessageHandler {
       return { text: 'Failed to grab release. The indexer may be unavailable or the release may have been removed.' };
     }
   }
+
+  private handleProwlarrVolumeSummary(
+    userId: PlatformUserId,
+    title: string,
+    results: ProwlarrSearchResult[],
+    preferredLanguage?: string
+  ): MessageResponse | null {
+    const summary = this.services.prowlarr.summarizeVolumes(results, {
+      preferredLanguage,
+      query: title,
+      maxResults: 150,
+    });
+
+    const choices: ProwlarrBulkChoice[] = [];
+    const lines: string[] = [`📚 *Volume results for "${title}":*`, ''];
+
+    if (summary.packs.length > 0) {
+      const bestPack = summary.packs[0];
+      if (bestPack) {
+        choices.push({ label: 'Grab best pack/collection', results: [bestPack] });
+        lines.push('*Best pack/collection:*');
+        lines.push(`1. ${bestPack.title}`);
+        lines.push(`   📦 ${bestPack.size} | ${bestPack.protocol} | ${bestPack.indexer} | ${bestPack.age}`);
+        lines.push('');
+      }
+    }
+
+    if (summary.bestByVolume.length > 0) {
+      const volumeChoices = summary.bestByVolume.slice(0, 25);
+      choices.push({ label: 'Grab best individual volumes', results: volumeChoices });
+
+      lines.push('*Individual volumes found:*');
+      for (const result of volumeChoices.slice(0, 12)) {
+        const volume = result.volumeInfo?.volumes[0];
+        const volumeLabel = volume === undefined ? '?' : String(volume).padStart(2, '0');
+        const langStr = result.languages.length > 0 ? ` [${result.languages.join(', ')}]` : '';
+        lines.push(`- Vol. ${volumeLabel}: ${result.title}${langStr}`);
+      }
+      if (volumeChoices.length > 12) {
+        lines.push(`- ...and ${volumeChoices.length - 12} more volume matches`);
+      }
+      lines.push('');
+    }
+
+    if (choices.length === 0) return null;
+
+    if (summary.foundVolumes.length > 0) {
+      lines.push(`Found volume numbers: ${formatVolumeList(summary.foundVolumes)}`);
+    }
+    if (summary.unknownResults.length > 0) {
+      lines.push(`Also found ${summary.unknownResults.length} unnumbered/unknown matches.`);
+    }
+    lines.push('');
+    lines.push('I cannot verify the complete official volume count from Prowlarr alone.');
+    lines.push('');
+    lines.push('*Reply with:*');
+    choices.forEach((choice, index) => {
+      lines.push(`${index + 1}. ${choice.label}`);
+    });
+
+    this.services.session.setProwlarrResults(userId, choices.flatMap((choice) => choice.results), {
+      prowlarrBulkChoices: choices,
+    });
+
+    return { text: lines.join('\n') };
+  }
+
+  private async handleProwlarrBulkSelection(
+    userId: PlatformUserId,
+    choice: ProwlarrBulkChoice
+  ): Promise<MessageResponse> {
+    const grabbed: FilteredProwlarrResult[] = [];
+    const failed: FilteredProwlarrResult[] = [];
+
+    for (const result of choice.results) {
+      try {
+        await this.services.prowlarr.grabRelease(result.guid, result.indexerId);
+        grabbed.push(result);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          { error: message, guid: result.guid, indexerId: result.indexerId, title: result.title },
+          'Failed to grab Prowlarr bulk release'
+        );
+        failed.push(result);
+      }
+    }
+
+    this.services.session.resetSession(userId);
+
+    const lines = [`📚 *${choice.label} complete*`, '', `Grabbed: ${grabbed.length}`];
+    if (failed.length > 0) lines.push(`Failed: ${failed.length}`);
+    if (grabbed.length > 0) {
+      lines.push('', '*Sent to download client:*');
+      for (const result of grabbed.slice(0, 10)) {
+        lines.push(`- ${result.title}`);
+      }
+      if (grabbed.length > 10) lines.push(`- ...and ${grabbed.length - 10} more`);
+    }
+    if (failed.length > 0) {
+      lines.push('', 'Some releases could not be grabbed. They may be unavailable or removed from the indexer.');
+    }
+
+    return { text: lines.join('\n') };
+  }
+
+  private isAllVolumesRequest(parsed: ParsedRequest): boolean {
+    const text = `${parsed.rawMessage ?? ''} ${parsed.title ?? ''}`.toLowerCase();
+    return /\b(alle\s+b[aä]nde|alle\s+baende|all\s+volumes|complete\s+series|komplett|vollst[aä]ndig|collection)\b/i.test(text);
+  }
+
+  private getProwlarrBulkChoices(context: Record<string, unknown>): ProwlarrBulkChoice[] {
+    const choices = context.prowlarrBulkChoices;
+    if (!Array.isArray(choices)) return [];
+
+    return choices.filter((choice): choice is ProwlarrBulkChoice => {
+      if (!choice || typeof choice !== 'object') return false;
+      const candidate = choice as Partial<ProwlarrBulkChoice>;
+      return typeof candidate.label === 'string' && Array.isArray(candidate.results);
+    });
+  }
+}
+
+function formatVolumeList(volumes: number[]): string {
+  if (volumes.length === 0) return 'none';
+  const ranges: string[] = [];
+  let start = volumes[0];
+  let previous = volumes[0];
+
+  for (const volume of volumes.slice(1)) {
+    if (previous !== undefined && volume === previous + 1) {
+      previous = volume;
+      continue;
+    }
+
+    if (start !== undefined && previous !== undefined) {
+      ranges.push(start === previous ? String(start) : `${start}-${previous}`);
+    }
+    start = volume;
+    previous = volume;
+  }
+
+  if (start !== undefined && previous !== undefined) {
+    ranges.push(start === previous ? String(start) : `${start}-${previous}`);
+  }
+
+  return ranges.join(', ');
 }

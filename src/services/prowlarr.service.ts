@@ -58,6 +58,21 @@ export interface FilteredProwlarrResult {
   languages: string[];
   age: string;
   score: number;
+  volumeInfo?: ProwlarrVolumeInfo;
+}
+
+export interface ProwlarrVolumeInfo {
+  kind: 'single' | 'range' | 'complete' | 'unknown';
+  volumes: number[];
+  start?: number;
+  end?: number;
+}
+
+export interface ProwlarrVolumeSummary {
+  packs: FilteredProwlarrResult[];
+  bestByVolume: FilteredProwlarrResult[];
+  foundVolumes: number[];
+  unknownResults: FilteredProwlarrResult[];
 }
 
 /**
@@ -269,11 +284,60 @@ export class ProwlarrService {
         languages: (r.languages ?? []).map((l) => l.name).filter(Boolean),
         age: formatAge(r.ageMinutes ?? 0),
         score: this.scoreResult(r, lang, query),
+        volumeInfo: parseVolumeInfo(r.title),
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, max);
 
     return filtered;
+  }
+
+  /**
+   * Summarize manga/comic results by detected volume coverage.
+   */
+  summarizeVolumes(
+    results: ProwlarrSearchResult[],
+    options?: { preferredLanguage?: string; query?: string; maxResults?: number }
+  ): ProwlarrVolumeSummary {
+    const ranked = this.filterResults(results, {
+      preferredLanguage: options?.preferredLanguage,
+      query: options?.query,
+      minSeeders: 0,
+      maxResults: options?.maxResults ?? 100,
+    });
+
+    const packs = ranked
+      .filter((result) => {
+        const info = result.volumeInfo;
+        return info?.kind === 'complete' || info?.kind === 'range';
+      })
+      .slice(0, 5);
+
+    const bestByVolume = new Map<number, FilteredProwlarrResult>();
+    const unknownResults: FilteredProwlarrResult[] = [];
+
+    for (const result of ranked) {
+      const info = result.volumeInfo;
+      if (!info || info.kind === 'unknown') {
+        if (unknownResults.length < 5) unknownResults.push(result);
+        continue;
+      }
+
+      if (info.kind !== 'single') continue;
+
+      const volume = info.volumes[0];
+      if (volume === undefined || bestByVolume.has(volume)) continue;
+      bestByVolume.set(volume, result);
+    }
+
+    const foundVolumes = [...bestByVolume.keys()].sort((a, b) => a - b);
+
+    return {
+      packs,
+      bestByVolume: foundVolumes.map((volume) => bestByVolume.get(volume)).filter(Boolean) as FilteredProwlarrResult[],
+      foundVolumes,
+      unknownResults,
+    };
   }
 
   /**
@@ -403,6 +467,49 @@ function normalizeForScoring(value: string): string {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function parseVolumeInfo(title: string): ProwlarrVolumeInfo {
+  const normalized = title.toLowerCase();
+
+  const rangeMatch = normalized.match(
+    /(?:vol\.?|volume|band|v)\s*(\d{1,3})\s*(?:-|–|—|to|bis)\s*(?:vol\.?|volume|band|v)?\s*(\d{1,3})/i
+  );
+  if (rangeMatch?.[1] && rangeMatch?.[2]) {
+    const start = Number.parseInt(rangeMatch[1], 10);
+    const end = Number.parseInt(rangeMatch[2], 10);
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+      return { kind: 'range', start, end, volumes: range(start, end) };
+    }
+  }
+
+  if (/\b(complete|collection|omnibus|bundle|pack|komplett|gesamt)\b/i.test(title)) {
+    return { kind: 'complete', volumes: [] };
+  }
+
+  const singleMatch = normalized.match(/(?:vol\.?|volume|band|v)\s*0*(\d{1,3})\b/i);
+  if (singleMatch?.[1]) {
+    const volume = Number.parseInt(singleMatch[1], 10);
+    if (Number.isFinite(volume)) return { kind: 'single', volumes: [volume], start: volume, end: volume };
+  }
+
+  const bracketedNumber = normalized.match(/(?:^|[\s._\-\[\(])0*(\d{1,3})(?:[\s._\-\]\)]|$)/);
+  if (bracketedNumber?.[1]) {
+    const volume = Number.parseInt(bracketedNumber[1], 10);
+    if (Number.isFinite(volume) && volume > 0 && volume < 200) {
+      return { kind: 'single', volumes: [volume], start: volume, end: volume };
+    }
+  }
+
+  return { kind: 'unknown', volumes: [] };
+}
+
+function range(start: number, end: number): number[] {
+  const values: number[] = [];
+  for (let value = start; value <= end; value += 1) {
+    values.push(value);
+  }
+  return values;
 }
 
 function formatSize(bytes: number): string {

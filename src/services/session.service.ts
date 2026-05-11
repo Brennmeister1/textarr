@@ -95,9 +95,14 @@ export class SessionService {
   /**
    * Store Prowlarr search results for user selection
    */
-  setProwlarrResults(userId: PlatformUserId, results: FilteredProwlarrResult[]): void {
+  setProwlarrResults(
+    userId: PlatformUserId,
+    results: FilteredProwlarrResult[],
+    context?: Record<string, unknown>
+  ): void {
     const session = this.getSession(userId);
     session.prowlarrResults = results as SessionData['prowlarrResults'];
+    session.context = context ? { ...session.context, ...context } : { ...session.context, prowlarrBulkChoices: undefined };
     session.state = 'awaiting_prowlarr_selection';
     session.lastActivity = new Date();
     this.logger.debug({ userId, resultCount: results.length }, 'Set Prowlarr results');
@@ -128,6 +133,7 @@ export class SessionService {
     session.prowlarrResults = [];
     session.selectedMedia = null;
     session.resultSource = null;
+    session.context = {};
     session.lastActivity = new Date();
     // Note: recentMessages is preserved for context
     this.logger.debug({ userId }, 'Reset session');

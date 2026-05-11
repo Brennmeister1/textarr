@@ -269,6 +269,12 @@ export const SessionDataSchema = z.object({
     languages: z.array(z.string()),
     age: z.string(),
     score: z.number(),
+    volumeInfo: z.object({
+      kind: z.enum(['single', 'range', 'complete', 'unknown']),
+      volumes: z.array(z.number()),
+      start: z.number().optional(),
+      end: z.number().optional(),
+    }).optional(),
   })).default([]),
 });
 export type SessionData = z.infer<typeof SessionDataSchema>;
