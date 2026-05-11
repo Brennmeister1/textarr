@@ -264,6 +264,7 @@ export const SessionDataSchema = z.object({
     seeders: z.number(),
     leechers: z.number(),
     indexer: z.string(),
+    indexerId: z.number(),
     protocol: z.string(),
     languages: z.array(z.string()),
     age: z.string(),

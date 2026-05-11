@@ -2258,7 +2258,8 @@ export class MessageHandler {
 
       return { text: lines.join('\n') };
     } catch (error) {
-      this.logger.error({ error, title, mediaType }, 'Prowlarr search failed');
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error({ error: message, title, mediaType }, 'Prowlarr search failed');
       return { text: `${emoji} Search failed. Prowlarr may not be configured or reachable.` };
     }
   }
@@ -2284,11 +2285,7 @@ export class MessageHandler {
     this.logger.info({ userId, guid: selected.guid, title: selected.title }, 'Grabbing Prowlarr release');
 
     try {
-      // Prowlarr needs indexerId for grab - we need to get it from the original search
-      // The guid alone is usually enough for Prowlarr to identify the release
-      // But Prowlarr's release endpoint might need indexerId
-      // For now, we use the guid - Prowlarr can often resolve from guid alone
-      await this.services.prowlarr.grabRelease(selected.guid, 0);
+      await this.services.prowlarr.grabRelease(selected.guid, selected.indexerId);
 
       this.services.session.resetSession(userId);
 
@@ -2305,7 +2302,8 @@ export class MessageHandler {
         ].join('\n'),
       };
     } catch (error) {
-      this.logger.error({ error, guid: selected.guid }, 'Failed to grab release');
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error({ error: message, guid: selected.guid, indexerId: selected.indexerId }, 'Failed to grab release');
       return { text: 'Failed to grab release. The indexer may be unavailable or the release may have been removed.' };
     }
   }

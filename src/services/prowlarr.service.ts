@@ -26,21 +26,21 @@ export type ProwlarrMediaType = keyof typeof PROWLARR_CATEGORIES;
 export interface ProwlarrSearchResult {
   guid: string;
   title: string;
-  size: number;
-  seeders: number;
-  leechers: number;
-  indexer: string;
-  indexerId: number;
-  age: number;
-  ageHours: number;
-  ageMinutes: number;
-  publishDate: string;
-  downloadUrl: string;
-  magnetUrl: string | null;
-  infoUrl: string | null;
-  protocol: 'usenet' | 'torrent';
-  categories: Array<{ id: number; name: string }>;
-  languages: Array<{ id: number; name: string }>;
+  size?: number;
+  seeders?: number;
+  leechers?: number;
+  indexer?: string;
+  indexerId?: number;
+  age?: number;
+  ageHours?: number;
+  ageMinutes?: number;
+  publishDate?: string;
+  downloadUrl?: string;
+  magnetUrl?: string | null;
+  infoUrl?: string | null;
+  protocol?: 'usenet' | 'torrent';
+  categories?: Array<{ id: number; name: string }>;
+  languages?: Array<{ id: number; name: string }>;
 }
 
 /**
@@ -53,6 +53,7 @@ export interface FilteredProwlarrResult {
   seeders: number;
   leechers: number;
   indexer: string;
+  indexerId: number;
   protocol: string;
   languages: string[];
   age: string;
@@ -90,13 +91,19 @@ export class ProwlarrService {
   private async request<T>(
     method: string,
     endpoint: string,
-    options?: { params?: Record<string, string>; body?: unknown }
+    options?: { params?: Record<string, string | string[]>; body?: unknown }
   ): Promise<T> {
     const url = new URL(this.apiUrl(endpoint));
 
     if (options?.params) {
       for (const [key, value] of Object.entries(options.params)) {
-        url.searchParams.set(key, value);
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            url.searchParams.append(key, item);
+          }
+        } else {
+          url.searchParams.set(key, value);
+        }
       }
     }
 
@@ -149,14 +156,14 @@ export class ProwlarrService {
   ): Promise<ProwlarrSearchResult[]> {
     this.logger.info({ query, categories }, 'Searching Prowlarr');
 
-    const params: Record<string, string> = {
+    const params: Record<string, string | string[]> = {
       query,
       type: 'search',
       limit: String(limit),
     };
 
     if (categories.length > 0) {
-      params.categories = categories.join(',');
+      params.categories = categories.map(String);
     }
 
     return this.request<ProwlarrSearchResult[]>('GET', 'search', { params });
@@ -246,17 +253,19 @@ export class ProwlarrService {
     const max = options?.maxResults ?? 5;
 
     const filtered = results
-      .filter((r) => r.seeders >= minSeeds)
+      .filter((r) => r.guid && r.title)
+      .filter((r) => (r.seeders ?? 0) >= minSeeds)
       .map((r) => ({
         guid: r.guid,
         title: r.title,
-        size: formatSize(r.size),
-        seeders: r.seeders,
-        leechers: r.leechers,
-        indexer: r.indexer,
-        protocol: r.protocol,
-        languages: r.languages.map((l) => l.name),
-        age: formatAge(r.ageMinutes),
+        size: formatSize(r.size ?? 0),
+        seeders: r.seeders ?? 0,
+        leechers: r.leechers ?? 0,
+        indexer: r.indexer ?? 'Unknown indexer',
+        indexerId: r.indexerId ?? 0,
+        protocol: r.protocol ?? 'unknown',
+        languages: (r.languages ?? []).map((l) => l.name).filter(Boolean),
+        age: formatAge(r.ageMinutes ?? 0),
         score: this.scoreResult(r, lang),
       }))
       .sort((a, b) => b.score - a.score)
@@ -272,12 +281,12 @@ export class ProwlarrService {
     let score = 0;
 
     // Seeders are king (0-30 points)
-    score += Math.min(result.seeders, 30);
+    score += Math.min(result.seeders ?? 0, 30);
 
     // Language preference (0-20 points)
     if (preferredLanguage) {
-      const langNames = result.languages.map((l) => l.name.toLowerCase());
-      const langIds = result.languages.map((l) => l.id);
+      const langNames = (result.languages ?? []).map((l) => l.name.toLowerCase());
+      const langIds = (result.languages ?? []).map((l) => l.id);
 
       // German = 4
       if (langNames.includes(preferredLanguage) || (preferredLanguage === 'german' && langIds.includes(4))) {
@@ -299,8 +308,9 @@ export class ProwlarrService {
     if (result.protocol === 'usenet') score += 5;
 
     // Freshness bonus: newer = better (0-5)
-    if (result.ageHours < 24) score += 5;
-    else if (result.ageHours < 168) score += 2;
+    const ageHours = result.ageHours ?? Number.MAX_SAFE_INTEGER;
+    if (ageHours < 24) score += 5;
+    else if (ageHours < 168) score += 2;
 
     return score;
   }
